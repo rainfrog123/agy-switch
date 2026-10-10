@@ -25,6 +25,7 @@ pub async fn get_account_dashboard_snapshot(
 pub async fn get_menu_bar_snapshot(
 ) -> Result<modules::account_dashboard::DashboardSnapshot, String> {
     tokio::task::spawn_blocking(|| {
+        #[allow(unused_mut)]
         let mut snapshot = modules::account_dashboard::snapshot()?;
         #[cfg(target_os = "macos")]
         {
@@ -143,6 +144,17 @@ pub async fn switch_account(
     crate::modules::tray::update_tray_menus(&app);
 
     Ok(())
+}
+
+/// 重启 Antigravity 并启用 9222 调试端口
+#[tauri::command]
+pub async fn restart_antigravity_9222() -> Result<(), String> {
+    modules::logger::log_info("收到以 9222 端口重启 Antigravity 请求");
+    tokio::task::spawn_blocking(move || {
+        modules::process::restart_antigravity_9222()
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 /// 获取当前账号

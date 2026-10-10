@@ -470,11 +470,15 @@ fn is_client_process(
             .to_ascii_lowercase();
         // Some background executors have generic process names but still live in
         // the client's installation/data tree after its visible window closes.
-        normalized.contains("/antigravity.app/")
+        !normalized.contains("/.gemini/")
+            && !normalized.contains("antigravity-manager")
+            && !normalized.contains("agy-switch")
+            && !normalized.contains("antigravity-tools")
+            && (normalized.contains("/antigravity.app/")
             || normalized.contains("/antigravity ide.app/")
             || normalized.contains("/antigravity-ide/")
             || normalized.contains("/antigravity/")
-            || normalized.contains("/antigravity-cli/")
+            || normalized.contains("/antigravity-cli/"))
             || configured_paths
                 .iter()
                 .any(|configured| configured_client_path(path, configured))
@@ -815,8 +819,10 @@ impl Environment for NativeEnvironment {
         if let Ok(storage_path) = device::get_storage_path(target_ide) {
             if let Some(ref profile) = target.device_profile {
                 let _ = device::write_profile(&storage_path, profile);
+                let _ = device::rewrite_install_identifiers(profile);
             }
         }
+        let _ = device::sync_desktop_app_storage(target);
 
         let candidate_dbs = if is_app_cli_mode {
             let mut paths = Vec::new();
@@ -838,7 +844,7 @@ impl Environment for NativeEnvironment {
         };
 
         for db_path in candidate_dbs {
-            if db_path.exists() {
+            if db_path.exists() && crate::modules::integration::db_matches_switch_target(&db_path, target_ide) {
                 let backup_path = db_path.with_extension("vscdb.backup");
                 let _ = std::fs::copy(&db_path, &backup_path);
                 let _ = db::inject_token(

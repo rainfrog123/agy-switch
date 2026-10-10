@@ -1,6 +1,7 @@
 //! Constrained CDP transport for the optional, scoped localization feature.
 //! The platform adapter must verify installation/process metadata first.
 //! It never discovers arbitrary ports or returns page contents.
+#![allow(dead_code)]
 
 use serde_json::{json, Value};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};

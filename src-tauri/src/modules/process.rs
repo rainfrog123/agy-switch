@@ -64,6 +64,117 @@ pub fn is_process_running_by_name(target_name: &str) -> bool {
     false
 }
 
+/// Account switchers live in folders whose path contains "antigravity", but they are not the app.
+fn is_manager_process(name: &str, exe_path: &str) -> bool {
+    let name = name.to_lowercase();
+    let exe = exe_path.to_lowercase().replace('/', "\\");
+    name.starts_with("agy-switch")
+        || name.starts_with("antigravity-tools")
+        || name.starts_with("antigravity_tools")
+        || exe.contains("agy-switch")
+        || exe.contains("antigravity-tools")
+        || exe.contains("antigravity_tools")
+        || exe.contains("antigravity-manager")
+}
+
+/// The desktop app binary. A switcher exe in a similarly named folder is not a launch target.
+fn is_antigravity_app_exe(path: &std::path::Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let exe = path.to_string_lossy();
+    (name.eq_ignore_ascii_case("Antigravity.exe") || name.eq_ignore_ascii_case("Antigravity"))
+        && !is_manager_process(name, &exe)
+}
+
+/// Helper process discriminator to filter out sub-processes, audio/gpu/renderers, crashpads, and language servers
+pub(crate) fn is_helper_process(name: &str, args_str: &str, exe_path: &str) -> bool {
+    let name_lower = name.to_lowercase();
+    let args_lower = args_str.to_lowercase();
+    let exe_lower = exe_path.to_lowercase();
+
+    args_lower.contains("--type=")
+        || args_lower.contains("node-ipc")
+        || args_lower.contains("nodeipc")
+        || args_lower.contains("max-old-space-size")
+        || args_lower.contains("node_modules")
+        || args_lower.contains("--standalone")
+        || args_lower.contains("--subclient_type")
+        || args_lower.contains("--override_ide_name")
+        || name_lower.contains("helper")
+        || name_lower.contains("plugin")
+        || name_lower.contains("renderer")
+        || name_lower.contains("gpu")
+        || name_lower.contains("crashpad")
+        || name_lower.contains("utility")
+        || name_lower.contains("audio")
+        || name_lower.contains("sandbox")
+        || name_lower.contains("language_server")
+        || args_lower.contains("language_server")
+        || exe_lower.contains("crashpad")
+        || exe_lower.contains("helper")
+        || exe_lower.contains("language_server")
+}
+
+/// Sanitize restart arguments to prevent internal engine/language_server arguments
+/// (such as --standalone or --override_ide_name) from leaking into relaunch commands.
+pub(crate) fn sanitize_restart_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .filter(|arg| {
+            let lower = arg.trim().to_lowercase();
+            !lower.is_empty()
+                && !lower.starts_with("--standalone")
+                && !lower.starts_with("--override_ide_name")
+                && !lower.starts_with("--subclient_type")
+                && !lower.starts_with("--remote-debugging-port=")
+                && !lower.contains("language_server")
+        })
+        .cloned()
+        .collect()
+}
+
+/// Extra cleanup: Kill orphan language_server processes located inside the Antigravity installation
+pub fn sweep_orphan_language_servers() {
+    let mut system = System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+
+    for (pid, process) in system.processes() {
+        let name = process.name().to_string_lossy().to_lowercase();
+        let exe_path = process
+            .exe()
+            .and_then(|p| p.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if (name.contains("language_server") || exe_path.contains("language_server"))
+            && exe_path.contains("antigravity")
+            && !exe_path.contains("antigravity ide")
+            && !exe_path.contains("antigravity-ide")
+        {
+            let pid_u32 = pid.as_u32();
+            crate::modules::logger::log_info(&format!(
+                "Sweeping orphan language_server process (PID: {}, Path: {})",
+                pid_u32, exe_path
+            ));
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", &pid_u32.to_string()])
+                    .creation_flags(0x08000000)
+                    .output();
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = Command::new("kill")
+                    .args(["-9", &pid_u32.to_string()])
+                    .output();
+            }
+        }
+    }
+}
+
+
 /// Check if Antigravity is running
 pub fn is_antigravity_running(target_ide: Option<&str>) -> bool {
     let mut system = System::new();
@@ -97,6 +208,10 @@ pub fn is_antigravity_running(target_ide: Option<&str>) -> bool {
             .unwrap_or("")
             .to_lowercase();
 
+        if is_manager_process(&name, &exe_path) {
+            continue;
+        }
+
         // Exclude own path (handles case where manager is mistaken for Antigravity on Linux)
         if let (Some(ref my_path), Some(p_exe)) = (&current_exe, process.exe()) {
             if let Ok(p_path) = p_exe.canonicalize() {
@@ -114,18 +229,7 @@ pub fn is_antigravity_running(target_ide: Option<&str>) -> bool {
             .collect::<Vec<String>>()
             .join(" ");
 
-        let is_helper = args_str.contains("--type=")
-            || name.contains("helper")
-            || name.contains("plugin")
-            || name.contains("renderer")
-            || name.contains("gpu")
-            || name.contains("crashpad")
-            || name.contains("utility")
-            || name.contains("audio")
-            || name.contains("sandbox")
-            || exe_path.contains("crashpad");
-
-        if is_helper {
+        if is_helper_process(&name, &args_str, &exe_path) {
             continue;
         }
 
@@ -249,6 +353,7 @@ fn get_self_family_pids(system: &sysinfo::System) -> std::collections::HashSet<u
 }
 
 /// Get PIDs of all Antigravity processes (including main and helper processes)
+#[cfg(not(target_os = "windows"))]
 fn get_antigravity_pids(target_ide: Option<&str>) -> Vec<u32> {
     let mut system = System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All);
@@ -454,27 +559,138 @@ fn get_antigravity_pids(target_ide: Option<&str>) -> Vec<u32> {
     pids
 }
 
+/// Processes that belong to the installed Antigravity app, including helpers and language_server.
+/// Switcher binaries are excluded even when their path contains "antigravity".
+#[cfg(target_os = "windows")]
+fn windows_product_pids(target_ide: Option<&str>) -> Vec<u32> {
+    let mut system = System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    let current = std::process::id();
+    let mut pids = Vec::new();
+    for (pid, process) in system.processes() {
+        let pid_u32 = pid.as_u32();
+        if pid_u32 == current {
+            continue;
+        }
+        let name = process.name().to_string_lossy().to_lowercase();
+        if name.starts_with("agy-switch") || name.starts_with("antigravity-tools") {
+            continue;
+        }
+        let exe = process
+            .exe()
+            .map(|path| path.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+            .replace('/', "\\");
+        if exe.contains("agy-switch")
+            || exe.contains("antigravity-tools")
+            || exe.contains("antigravity-manager")
+        {
+            continue;
+        }
+        let is_ide = exe.contains("\\antigravity ide\\")
+            || exe.contains("\\antigravity-ide\\")
+            || name.contains("antigravity ide")
+            || name.contains("antigravity-ide");
+        let is_app = exe.contains("\\antigravity\\")
+            || name == "antigravity.exe"
+            || name == "antigravity";
+        let matched = if target_ide == Some("ide") {
+            is_ide
+        } else {
+            is_app && !is_ide
+        };
+        if matched {
+            pids.push(pid_u32);
+        }
+    }
+    pids
+}
+
+#[cfg(target_os = "windows")]
+fn terminate_windows_pid(pid: u32) -> Result<(), String> {
+    use std::ffi::c_void;
+    #[link(name = "Kernel32")]
+    extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn TerminateProcess(handle: *mut c_void, code: u32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn GetLastError() -> u32;
+    }
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if handle.is_null() {
+            let err = GetLastError();
+            // 87: already exited. 5: access denied.
+            if err == 87 {
+                return Ok(());
+            }
+            return Err(format!("OpenProcess failed ({err})"));
+        }
+        let ok = TerminateProcess(handle, 1);
+        let err = GetLastError();
+        CloseHandle(handle);
+        if ok == 0 && err != 87 {
+            return Err(format!("TerminateProcess failed ({err})"));
+        }
+    }
+    Ok(())
+}
+
 /// Close Antigravity processes
 pub fn close_antigravity(timeout_secs: u64, target_ide: Option<&str>) -> Result<(), String> {
     crate::modules::logger::log_info(&format!("Closing Antigravity ({:?})...", target_ide));
 
     #[cfg(target_os = "windows")]
     {
-        // Windows: Precise kill by PID to support multiple versions or custom filenames
-        let pids = get_antigravity_pids(target_ide);
-        if !pids.is_empty() {
-            crate::modules::logger::log_info(&format!(
-                "Precisely closing {} identified processes on Windows...",
-                pids.len()
-            ));
-            for pid in pids {
-                let _ = Command::new("taskkill")
-                    .args(["/F", "/PID", &pid.to_string()])
-                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                    .output();
+        let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs.max(1));
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        let taskkill = std::path::PathBuf::from(system_root)
+            .join("System32")
+            .join("taskkill.exe");
+        loop {
+            let pids = windows_product_pids(target_ide);
+            if pids.is_empty() {
+                break;
             }
-            // Give some time for system to clean up PIDs
-            thread::sleep(Duration::from_millis(200));
+            crate::modules::logger::log_info(&format!(
+                "Precisely closing {} Antigravity processes on Windows: {:?}",
+                pids.len(),
+                pids
+            ));
+            for pid in &pids {
+                if let Err(err) = terminate_windows_pid(*pid) {
+                    crate::modules::logger::log_warn(&format!(
+                        "TerminateProcess PID {pid} failed: {err}"
+                    ));
+                }
+                let output = Command::new(&taskkill)
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(0x08000000)
+                    .output();
+                if let Ok(output) = output {
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let stderr = stderr.trim();
+                        if !stderr.is_empty() && !stderr.to_lowercase().contains("not found") {
+                            crate::modules::logger::log_warn(&format!(
+                                "taskkill PID {pid}: {stderr}"
+                            ));
+                        }
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(400));
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+        }
+        let remaining = windows_product_pids(target_ide);
+        if !remaining.is_empty() {
+            return Err(format!(
+                "Unable to close Antigravity (still running: {:?}). Close it and retry.",
+                remaining
+            ));
         }
     }
 
@@ -733,7 +949,8 @@ pub fn close_antigravity(timeout_secs: u64, target_ide: Option<&str>) -> Result<
         }
     }
 
-    // Final check
+    // Final check. Windows already verified the full process tree, including helpers.
+    #[cfg(not(target_os = "windows"))]
     if is_antigravity_running(target_ide) {
         return Err(
             "Unable to close Antigravity process, please close manually and retry".to_string(),
@@ -775,12 +992,135 @@ pub fn clean_appimage_env(cmd: &mut Command) {
 
 /// Start Antigravity using the GUI's existing stdio behavior.
 pub fn start_antigravity(target_ide: Option<&str>) -> Result<(), String> {
-    start_antigravity_with_stdio(target_ide, false)
+    start_antigravity_with_stdio(target_ide, false, None)
 }
 
 /// CLI launches must not leak child output or keep the CLI's capture pipes open.
+#[allow(dead_code)]
 pub fn start_antigravity_detached(target_ide: Option<&str>) -> Result<(), String> {
-    start_antigravity_with_stdio(target_ide, true)
+    start_antigravity_with_stdio(target_ide, true, None)
+}
+
+#[allow(dead_code)]
+pub fn start_antigravity_with_extra_args(
+    target_ide: Option<&str>,
+    extra_args: &[&str],
+) -> Result<(), String> {
+    start_antigravity_with_stdio(target_ide, false, Some(extra_args))
+}
+
+/// Fully close Antigravity processes, ensuring all file locks and background helpers are terminated.
+/// Waits 2 seconds for clean teardown.
+pub fn fully_close_antigravity(target_ide: Option<&str>) -> Result<(), String> {
+    crate::modules::logger::log_info(&format!("Fully closing Antigravity ({:?})...", target_ide));
+
+    close_antigravity(8, target_ide)?;
+    if target_ide.is_some() {
+        close_antigravity(8, None)?;
+    }
+
+    // Extra cleanup: Kill orphan language_server processes
+    sweep_orphan_language_servers();
+
+    // Wait for file handles to flush after the process tree is gone.
+    thread::sleep(Duration::from_secs(2));
+
+    #[cfg(target_os = "windows")]
+    {
+        let remaining = windows_product_pids(target_ide);
+        if !remaining.is_empty() {
+            return Err(format!(
+                "Unable to close Antigravity (still running: {:?}). Close it and retry.",
+                remaining
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Launch Antigravity with --remote-debugging-port=9222
+#[allow(dead_code)]
+pub fn launch_antigravity_9222(target_ide: Option<&str>) -> Result<(), String> {
+    launch_antigravity_9222_with_fallback(target_ide, None, None)
+}
+
+/// Launch Antigravity with --remote-debugging-port=9222, prioritizing pre-snapshot path and arguments
+pub fn launch_antigravity_9222_with_fallback(
+    target_ide: Option<&str>,
+    active_exe: Option<&std::path::Path>,
+    active_args: Option<&[String]>,
+) -> Result<(), String> {
+    crate::modules::logger::log_info(&format!(
+        "Launching Antigravity with --remote-debugging-port=9222 ({:?})...",
+        target_ide
+    ));
+
+    #[cfg(target_os = "windows")]
+    {
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let default_path = std::path::PathBuf::from(&local)
+            .join("Programs")
+            .join("Antigravity")
+            .join("Antigravity.exe");
+
+        let snapshot = active_exe.filter(|path| path.exists() && is_antigravity_app_exe(path));
+        let detected = get_antigravity_executable_path(target_ide)
+            .filter(|path| is_antigravity_app_exe(path));
+        let exe = if let Some(path) = snapshot {
+            path.to_path_buf()
+        } else if default_path.exists() {
+            default_path
+        } else if let Some(path) = detected {
+            path
+        } else {
+            return Err("Antigravity executable not found on system".to_string());
+        };
+
+        let mut cmd = Command::new(&exe);
+        if let Some(parent) = exe.parent() {
+            cmd.current_dir(parent);
+        }
+
+        // Apply sanitized arguments
+        if let Some(args) = active_args {
+            let clean = sanitize_restart_args(args);
+            for arg in clean {
+                cmd.arg(arg);
+            }
+        } else if let Ok(config) = crate::modules::config::load_app_config() {
+            if let Some(ref args) = config.antigravity_args {
+                let clean = sanitize_restart_args(args);
+                for arg in clean {
+                    cmd.arg(arg);
+                }
+            }
+        }
+        cmd.arg("--remote-debugging-port=9222");
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to start Antigravity: {}", e))?;
+
+        crate::modules::logger::log_info(&format!(
+            "Antigravity started with --remote-debugging-port=9222: {:?}",
+            exe
+        ));
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        start_antigravity_with_extra_args(target_ide, &["--remote-debugging-port=9222"])
+    }
+}
+
+/// Restart Antigravity on debugging port 9222:
+/// (Stop-Process -Name "Antigravity" -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; & "$env:LOCALAPPDATA\Programs\Antigravity\Antigravity.exe" --remote-debugging-port=9222)
+pub fn restart_antigravity_9222() -> Result<(), String> {
+    let active_exe = get_antigravity_executable_path(None);
+    let active_args = get_args_from_running_process(None);
+    fully_close_antigravity(None)?;
+    launch_antigravity_9222_with_fallback(None, active_exe.as_deref(), active_args.as_deref())
 }
 
 fn prepare_launch_stdio(command: &mut Command, detached: bool) -> Result<(), String> {
@@ -827,7 +1167,11 @@ fn prevent_cli_pipe_inheritance() -> Result<(), String> {
 }
 
 #[allow(unused_mut)]
-fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Result<(), String> {
+fn start_antigravity_with_stdio(
+    target_ide: Option<&str>,
+    detached: bool,
+    extra_args: Option<&[&str]>,
+) -> Result<(), String> {
     crate::modules::logger::log_info(&format!("Starting Antigravity ({:?})...", target_ide));
 
     // Prefer manually specified path and args from configuration
@@ -882,6 +1226,11 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                             cmd.arg(arg);
                         }
                     }
+                    if let Some(extras) = extra_args {
+                        for arg in extras {
+                            cmd.arg(arg);
+                        }
+                    }
 
                     cmd.spawn()
                         .map_err(|e| format!("Startup failed (open): {}", e))?;
@@ -895,6 +1244,11 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                             cmd.arg(arg);
                         }
                     }
+                    if let Some(extras) = extra_args {
+                        for arg in extras {
+                            cmd.arg(arg);
+                        }
+                    }
 
                     cmd.spawn()
                         .map_err(|e| format!("Startup failed (direct): {}", e))?;
@@ -904,6 +1258,9 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
             #[cfg(not(target_os = "macos"))]
             {
                 let mut cmd = Command::new(&path_str);
+                if let Some(parent) = path.parent() {
+                    cmd.current_dir(parent);
+                }
                 prepare_launch_stdio(&mut cmd, detached)?;
 
                 // Add startup arguments
@@ -912,12 +1269,14 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                         cmd.arg(arg);
                     }
                 }
+                if let Some(extras) = extra_args {
+                    for arg in extras {
+                        cmd.arg(arg);
+                    }
+                }
 
                 #[cfg(target_os = "linux")]
                 clean_appimage_env(&mut cmd);
-
-                #[cfg(target_os = "windows")]
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
                 cmd.spawn().map_err(|e| format!("Startup failed: {}", e))?;
             }
@@ -953,6 +1312,11 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                 cmd.arg(arg);
             }
         }
+        if let Some(extras) = extra_args {
+            for arg in extras {
+                cmd.arg(arg);
+            }
+        }
 
         let output = cmd
             .output()
@@ -971,6 +1335,9 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
         // Windows/Linux Auto-detection and Startup
         if let Some(detected_path) = get_antigravity_executable_path(target_ide) {
             let mut cmd = Command::new(&detected_path);
+            if let Some(parent) = detected_path.parent() {
+                cmd.current_dir(parent);
+            }
             prepare_launch_stdio(&mut cmd, detached)?;
 
             // Add startup arguments
@@ -979,12 +1346,14 @@ fn start_antigravity_with_stdio(target_ide: Option<&str>, detached: bool) -> Res
                     cmd.arg(arg);
                 }
             }
+            if let Some(extras) = extra_args {
+                for arg in extras {
+                    cmd.arg(arg);
+                }
+            }
 
             #[cfg(target_os = "linux")]
             clean_appimage_env(&mut cmd);
-
-            #[cfg(target_os = "windows")]
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
             cmd.spawn().map_err(|e| {
                 format!("Startup failed (detected path {:?}): {}", detected_path, e)
@@ -1024,6 +1393,11 @@ fn get_process_info(target_ide: Option<&str>) -> (Option<std::path::PathBuf>, Op
         }
 
         let name = process.name().to_string_lossy().to_lowercase();
+        if let Some(exe) = process.exe() {
+            if is_manager_process(&name, &exe.to_string_lossy()) {
+                continue;
+            }
+        }
 
         // Get executable path and command line arguments
         if let Some(exe) = process.exe() {
@@ -1033,28 +1407,15 @@ fn get_process_info(target_ide: Option<&str>) -> (Option<std::path::PathBuf>, Op
                 .map_or(exe.to_string_lossy(), |arg| arg.to_string_lossy())
                 .to_lowercase();
 
-            // Extract actual arguments from command line (skipping exe path)
+            // Keep the original argument case. Matching uses a lowercase copy.
             let args = args
-                .map(|arg| arg.to_string_lossy().to_lowercase())
+                .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<String>>();
 
-            let args_str = args.join(" ");
+            let args_str = args.join(" ").to_lowercase();
 
             // Common helper process exclusion logic
-            let is_helper = args_str.contains("--type=")
-                || args_str.contains("node-ipc")
-                || args_str.contains("nodeipc")
-                || args_str.contains("max-old-space-size")
-                || args_str.contains("node_modules")
-                || name.contains("helper")
-                || name.contains("plugin")
-                || name.contains("renderer")
-                || name.contains("gpu")
-                || name.contains("crashpad")
-                || name.contains("utility")
-                || name.contains("audio")
-                || name.contains("sandbox")
-                || exe_path.contains("crashpad");
+            let is_helper = is_helper_process(&name, &args_str, &exe_path);
 
             let path = Some(exe.to_path_buf());
             let args = Some(args);

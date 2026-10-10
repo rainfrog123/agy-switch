@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   List,
   RefreshCw,
+  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import ModalDialog from "../components/common/ModalDialog";
 import Pagination from "../components/common/Pagination";
 import { showToast } from "../components/common/ToastContainer";
 import { useAccountStore } from "../stores/useAccountStore";
+import * as accountService from "../services/accountService";
 import { cn } from "../utils/cn";
 import { useTranslation } from "react-i18next";
 import type { Account } from "../types/account";
@@ -357,6 +359,20 @@ function Accounts() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
+  const [isRestarting9222, setIsRestarting9222] = useState(false);
+
+  const handleRestart9222 = async () => {
+    setIsRestarting9222(true);
+    try {
+      await accountService.restartAntigravity9222();
+      showToast(t("accounts.restarted_9222", "Antigravity 已以 9222 端口重启"), "success");
+    } catch (error) {
+      console.error("[Accounts] Restart 9222 failed:", error);
+      showToast(`${t("common.error")}: ${error}`, "error");
+    } finally {
+      setIsRestarting9222(false);
+    }
+  };
 
   const handleRefreshClick = () => {
     setIsRefreshConfirmOpen(true);
@@ -663,6 +679,20 @@ function Accounts() {
                 : selectedIds.size > 0
                   ? t("accounts.refresh_selected", { count: selectedIds.size })
                   : t("accounts.refresh_all")}
+            </span>
+          </button>
+
+          <button
+            className={`px-2.5 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-1.5 shadow-sm ${isRestarting9222 ? "opacity-70 cursor-not-allowed" : ""}`}
+            onClick={handleRestart9222}
+            disabled={isRestarting9222}
+            title={t("accounts.restart_9222_title", "以 9222 调试端口重启 Antigravity")}
+          >
+            <RotateCcw
+              className={`w-3.5 h-3.5 ${isRestarting9222 ? "animate-spin" : ""}`}
+            />
+            <span className="hidden xl:inline">
+              9222
             </span>
           </button>
 

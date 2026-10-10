@@ -1042,8 +1042,17 @@ pub async fn switch_account(
         Err(e) => {
             if is_account_access_blocked_message(&e) {
                 mark_validation_blocked(&mut account, &e);
+                return Err(format_switch_refresh_error(&e));
             }
-            return Err(format_switch_refresh_error(&e));
+            if is_refresh_network_error(&e) && !account.token.access_token.trim().is_empty() {
+                crate::modules::logger::log_warn(&format!(
+                    "Google is unreachable while refreshing {}. Switching with the stored token. {}",
+                    account.email, e
+                ));
+                account.token.clone()
+            } else {
+                return Err(format_switch_refresh_error(&e));
+            }
         }
     };
 
@@ -1214,6 +1223,18 @@ fn is_validation_required_error(err: &crate::error::AppError) -> bool {
         || text.contains("validation_url")
         || text.contains("appeal_url")
         || text.contains("validation required")
+}
+
+fn is_refresh_network_error(message: &str) -> bool {
+    let text = message.to_lowercase();
+    text.contains("error sending request")
+        || text.contains("client error (connect)")
+        || text.contains("operation timed out")
+        || text.contains("timed out")
+        || text.contains("无法连接")
+        || text.contains("connection")
+        || text.contains("dns")
+        || text.contains("proxy")
 }
 
 fn is_account_access_blocked_message(message: &str) -> bool {

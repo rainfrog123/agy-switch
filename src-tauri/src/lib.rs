@@ -314,6 +314,7 @@ pub fn run() {
             commands::delete_accounts,
             commands::reorder_accounts,
             commands::switch_account,
+            commands::restart_antigravity_9222,
             commands::export_accounts,
             commands::get_current_account,
             commands::fetch_account_quota,

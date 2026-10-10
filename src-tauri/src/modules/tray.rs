@@ -86,6 +86,14 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         None::<&str>,
     )?)?;
+    let restart_text = if config.language.starts_with("zh") { "以 9222 端口重启 Antigravity" } else { "Restart in 9222 (Debug Port)" };
+    menu.append(&MenuItem::with_id(
+        app,
+        "restart_9222",
+        restart_text,
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
@@ -120,6 +128,11 @@ pub fn create_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
             "settings" => {
                 let _ = modules::desktop::open_app_page(app.clone(), "settings".into());
+            }
+            "restart_9222" => {
+                tauri::async_runtime::spawn(async {
+                    let _ = tokio::task::spawn_blocking(modules::process::restart_antigravity_9222).await;
+                });
             }
             "quit" => app.exit(0),
             "switch_next" => {

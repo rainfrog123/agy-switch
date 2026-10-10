@@ -1,5 +1,6 @@
 //! Read-only installation, process and listener metadata for App identity.
 //! No debugging connection, script injection, launch or credential writes.
+#![allow(dead_code)]
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 use serde_json::Value;
 #[cfg(any(target_os = "macos", test))]

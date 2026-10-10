@@ -73,6 +73,7 @@ pub struct ReadOnlyBucket {
 }
 /// A live identity supersedes the saved Tools index. Ambiguous and failed
 /// observations never select an arbitrary account; a closed App retains it.
+#[allow(dead_code)]
 pub fn apply_running_identity(snapshot: &mut DashboardSnapshot, identity: Result<Option<String>, String>) {
     match identity {
         Ok(Some(email)) => {

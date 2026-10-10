@@ -108,6 +108,7 @@ impl Default for MenuBarPreferences {
         show_aggregate: true, show_session: true, show_weekly: true, show_icons: true, show_reset_on_hover: true, reset_time_display: None, green_above: 60, red_below: 20 } }
 }
 impl MenuBarPreferences {
+    #[allow(dead_code)]
     pub fn reset_time_mode(&self) -> MenuBarResetTimeDisplay {
         self.reset_time_display.unwrap_or(if self.show_reset_on_hover { MenuBarResetTimeDisplay::Hover } else { MenuBarResetTimeDisplay::Hidden })
     }

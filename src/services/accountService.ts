@@ -46,6 +46,10 @@ export async function switchAccount(accountId: string, targetIde?: string): Prom
     return await invoke('switch_account', { accountId, targetIde });
 }
 
+export async function restartAntigravity9222(): Promise<void> {
+    return await invoke('restart_antigravity_9222');
+}
+
 export async function fetchAccountQuota(accountId: string): Promise<QuotaData> {
     return await invoke('fetch_account_quota', { accountId });
 }

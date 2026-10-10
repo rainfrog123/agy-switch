@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, PanelTop, RefreshCw } from "lucide-react";
+import { Loader2, PanelTop, RefreshCw, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../utils/request";
 import { isTauri } from "../../utils/env";
@@ -25,6 +25,7 @@ export default function DesktopSettings() {
   const loadConfig = useConfigStore((state) => state.loadConfig);
   const [status, setStatus] = useState<DesktopStatus | null>(null);
   const [busy, setBusy] = useState<Preference | null>(null);
+  const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState("");
   const lock = useRef(false);
   const generation = useRef(0);
@@ -168,6 +169,32 @@ export default function DesktopSettings() {
         ))}
       </div>
       <MenuBarPreferencesSettings />
+      <div className="mt-4 rounded-2xl border border-gray-200/70 bg-white/70 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/50 flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            以 9222 调试端口重启 Antigravity
+          </h4>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            完全关闭现有进程并携带 --remote-debugging-port=9222 重新拉起
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            setRestarting(true);
+            try {
+              await request("restart_antigravity_9222");
+            } finally {
+              setRestarting(false);
+            }
+          }}
+          disabled={restarting}
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+        >
+          {restarting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+          <span>{restarting ? "重启中..." : "重启 (9222)"}</span>
+        </button>
+      </div>
       <p className="mt-3.5 rounded-xl border border-gray-200/70 bg-gray-50/60 p-3 text-xs leading-relaxed text-gray-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-gray-400">
         {!isTauri()
           ? t.nativeOnly

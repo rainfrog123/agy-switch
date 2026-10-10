@@ -14,6 +14,7 @@ static READING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const MAX_AGE: Duration = Duration::from_secs(30);
 
 /// Opening the native menu reads memory only; midnight never reuses yesterday.
+#[allow(dead_code)]
 pub fn cached() -> Option<MenuBarUsage> {
     CACHE.lock().ok()?.as_ref().filter(|cache| cache.current(chrono::Local::now().date_naive())).map(|cache| cache.value.clone())
 }

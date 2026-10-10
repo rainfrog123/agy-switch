@@ -1,4 +1,5 @@
 //! Live task observations. Missing/unsupported observations never mean idle.
+#![allow(dead_code)]
 use serde_json::Value;
 use std::io::Read;
 

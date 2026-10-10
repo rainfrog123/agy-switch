@@ -165,6 +165,8 @@ fn inject_new_format(
     id_token: Option<&str>,
 ) -> Result<String, String> {
     let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+    conn.busy_timeout(std::time::Duration::from_millis(2000))
+        .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
 
     // Create OAuthTokenInfo (binary)
     let oauth_info = protobuf::create_oauth_info(
@@ -268,3 +270,35 @@ fn clear_enterprise_project_preference(conn: &Connection) -> Result<(), String> 
 
     Ok(())
 }
+
+/// 注入 Service Machine ID 到数据库，解决 VS Code 缓存指纹不匹配导致 Token 失效的问题
+pub fn write_service_machine_id(
+    db_path: &std::path::Path,
+    storage_machine_id: &str,
+    telemetry_machine_id: &str,
+) -> Result<(), String> {
+    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+
+    conn.busy_timeout(std::time::Duration::from_millis(2000))
+        .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
+        ["telemetry.serviceMachineId", telemetry_machine_id],
+    )
+    .map_err(|e| format!("Failed to write serviceMachineId: {}", e))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('storage.serviceMachineId', ?1);",
+        [storage_machine_id],
+    )
+    .map_err(|e| format!("Failed to write storage.serviceMachineId: {}", e))?;
+
+    crate::modules::logger::log_info(&format!(
+        "Successfully injected serviceMachineId to DB: storage={} telemetry={}",
+        storage_machine_id, telemetry_machine_id
+    ));
+
+    Ok(())
+}
+

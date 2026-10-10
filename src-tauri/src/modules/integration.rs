@@ -12,8 +12,9 @@ pub trait SystemIntegration: Send + Sync {
     ) -> Result<(), String>;
 
     /// The CLI overrides only launch I/O; GUI launch behavior stays unchanged.
+    #[allow(dead_code)]
     fn start_application(&self, target_ide: Option<&str>) -> Result<(), String> {
-        process::start_antigravity(target_ide)
+        process::launch_antigravity_9222(target_ide)
     }
 
     /// 更新系统托盘（如果适用）
@@ -80,11 +81,13 @@ impl DesktopIntegration {
         if cli_only {
             write_to_system_keyring(account, true)?;
 
-            if let Ok(storage_path) = device::get_storage_path(target_ide) {
-                if let Some(ref profile) = account.device_profile {
-                    let _ = device::write_profile(&storage_path, profile);
-                }
+        if let Ok(storage_path) = device::get_storage_path(target_ide) {
+            if let Some(ref profile) = account.device_profile {
+                let _ = device::write_profile(&storage_path, profile);
+                let _ = device::rewrite_install_identifiers(profile);
             }
+        }
+            let _ = device::sync_desktop_app_storage(account);
 
             let is_running = process::is_process_running_by_name("agy");
             let msg = if is_running {
@@ -109,30 +112,19 @@ impl DesktopIntegration {
             return Err("Cannot find Antigravity. Set its executable path in Settings, or install and initialize agy before switching accounts.".into());
         }
 
-        // 1. 智能检测运行中的进程，并安全关闭对应客户端
+        // 0. 在关闭外部进程前，预先快照捕获正在运行的可执行文件路径与启动参数
+        let active_exe_path = process::get_antigravity_executable_path(target_ide);
+        let active_args = process::get_args_from_running_process(target_ide);
+
+        // 1. 完全关闭 Antigravity 并等待 2 秒（释放全部锁与资源，清除 orphan language_server）
         let is_ide_mode = target_ide == Some("ide");
         let is_app_cli_mode = target_ide == Some("app");
         let is_vscode_mode = target_ide == Some("vscode");
-        let app_running = if is_ide_mode || is_vscode_mode { false } else { process::is_antigravity_running(None) };
-        let ide_running = if is_app_cli_mode || is_vscode_mode { false } else { process::is_antigravity_running(Some("ide")) };
 
         if is_vscode_mode {
             // VS Code 插件模式：不退出 VS Code 宿主，直接进行凭据热更新
-        } else if is_ide_mode {
-            if ide_running {
-                process::close_antigravity(20, Some("ide"))?;
-            }
-        } else if is_app_cli_mode {
-            if app_running {
-                let _ = process::close_antigravity(20, None);
-            }
         } else {
-            if app_running {
-                let _ = process::close_antigravity(20, None);
-            }
-            if ide_running {
-                let _ = process::close_antigravity(20, Some("ide"));
-            }
+            process::fully_close_antigravity(target_ide)?;
         }
 
         // 2. 凭据全域同步写入（Keychain + CLI + VS Code 插件文件 + SQLite 数据库）
@@ -141,27 +133,18 @@ impl DesktopIntegration {
             write_to_system_keyring(account, false)?;
         }
 
-        // 2.2 写入 VS Code 插件专用凭据文件 (~/.gemini/jetski-standalone-oauth-token)
-        if !is_app_cli_mode {
-            if let Some(home) = dirs::home_dir() {
-                let gemini_dir = home.join(".gemini");
-                if gemini_dir.is_dir() {
-                    let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
-                    if let Ok(payload) = cli_credentials::payload(&account.token) {
-                        let _ = cli_credentials::write_session(&jetski_file, &payload);
-                    }
-                }
-            }
-        }
+        // 2.2 写入多端凭据文件 (~/.gemini/)
+        write_to_file_credentials(account)?;
 
-        // 2.3 写入设备 Profile（如果有）
         if let Ok(storage_path) = device::get_storage_path(target_ide) {
             if let Some(ref profile) = account.device_profile {
                 let _ = device::write_profile(&storage_path, profile);
+                let _ = device::rewrite_install_identifiers(profile);
             }
         }
+        let _ = device::sync_desktop_app_storage(account);
 
-        // 2.4 注入对应 state.vscdb 数据库
+        // 2.4 注入对应 state.vscdb。这个安装没有该文件；只写确实属于目标编辑器的库。
         let candidate_dbs = if is_app_cli_mode {
             let mut paths = Vec::new();
             #[cfg(target_os = "macos")]
@@ -180,42 +163,49 @@ impl DesktopIntegration {
         } else {
             db::get_all_candidate_db_paths(target_ide)
         };
+        let mut injected = 0usize;
         for db_path in candidate_dbs {
-            if db_path.exists() {
-                let backup_path = db_path.with_extension("vscdb.backup");
-                let _ = fs::copy(&db_path, &backup_path);
-                let _ = db::inject_token(
+            if !db_path.exists() || !db_matches_switch_target(&db_path, target_ide) {
+                continue;
+            }
+            let backup_path = db_path.with_extension("vscdb.backup");
+            let _ = fs::copy(&db_path, &backup_path);
+            db::inject_token(
+                &db_path,
+                &account.token.access_token,
+                &account.token.refresh_token,
+                account.token.expiry_timestamp,
+                &account.email,
+                account.token.is_gcp_tos,
+                account.token.project_id.as_deref(),
+                account.token.id_token.as_deref(),
+                account.token.oauth_client_key.as_deref(),
+            )
+            .map_err(|err| format!("Failed to write Antigravity session database {:?}: {err}", db_path))?;
+            if let Some(ref profile) = account.device_profile {
+                let _ = db::write_service_machine_id(
                     &db_path,
-                    &account.token.access_token,
-                    &account.token.refresh_token,
-                    account.token.expiry_timestamp,
-                    &account.email,
-                    account.token.is_gcp_tos,
-                    account.token.project_id.as_deref(),
-                    account.token.id_token.as_deref(),
-                    account.token.oauth_client_key.as_deref(),
+                    &profile.dev_device_id,
+                    &profile.mac_machine_id,
                 );
             }
+            injected += 1;
+        }
+        if injected == 0 && !is_vscode_mode {
+            crate::modules::logger::log_warn(
+                "No Antigravity state.vscdb found. Session was written to the credential store and ~/.gemini token files.",
+            );
         }
 
-        // 3. 智能联动重启：刚才开着哪个，就重新拉起哪个（VS Code 插件免重启）
+        // 3. 在 9222 远程调试端口下重新拉起 Antigravity (利用预快照的 exe 和 args)
         if is_vscode_mode {
             // 免重启宿主编辑器
-        } else if is_ide_mode {
-            if ide_running {
-                let _ = integration.start_application(Some("ide"));
-            }
-        } else if is_app_cli_mode {
-            if app_running {
-                let _ = integration.start_application(None);
-            }
         } else {
-            if app_running {
-                let _ = integration.start_application(None);
-            }
-            if ide_running {
-                let _ = integration.start_application(Some("ide"));
-            }
+            process::launch_antigravity_9222_with_fallback(
+                target_ide,
+                active_exe_path.as_deref(),
+                active_args.as_deref(),
+            )?;
         }
 
         // 4. 更新托盘
@@ -223,6 +213,146 @@ impl DesktopIntegration {
 
         Ok(())
     }
+}
+
+pub(crate) fn db_matches_switch_target(path: &std::path::Path, target_ide: Option<&str>) -> bool {
+    let text = path.to_string_lossy().to_lowercase().replace('/', "\\");
+    let ide = text.contains("\\antigravity ide\\") || text.contains("\\antigravity-ide\\");
+    let code = text.contains("\\code\\") || text.contains("\\code - insiders\\");
+    let cursor = text.contains("\\cursor\\");
+    match target_ide {
+        Some("ide") => ide,
+        Some("vscode") | Some("code") => code,
+        Some("cursor") => cursor,
+        _ => text.contains("\\antigravity\\") && !ide && !code && !cursor,
+    }
+}
+
+/// 同步写入本地文件凭据 (~/.gemini/ 目录下的所有工具凭据文件)
+pub(crate) fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Err("Failed to resolve user home directory".to_string()),
+    };
+    let gemini_dir = home.join(".gemini");
+
+    if !gemini_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&gemini_dir) {
+            crate::modules::logger::log_warn(&format!(
+                "[Desktop] Failed to create .gemini directory: {}",
+                e
+            ));
+            return Err(format!("Failed to create .gemini directory: {}", e));
+        }
+    }
+
+    // 1. 同步写入 jetski-standalone-oauth-token (VS Code 插件专用)
+    let jetski_file = gemini_dir.join("jetski-standalone-oauth-token");
+    if let Ok(payload) = cli_credentials::payload(&account.token) {
+        let _ = cli_credentials::write_session(&jetski_file, &payload);
+    }
+
+    // 2. 同步写入 Antigravity CLI (agy) 原生文件凭据: ~/.gemini/antigravity-cli/antigravity-oauth-token
+    let agy_cli_dir = gemini_dir.join("antigravity-cli");
+    if !agy_cli_dir.exists() {
+        let _ = std::fs::create_dir_all(&agy_cli_dir);
+    }
+
+    let expiry_secs = if account.token.expiry_timestamp > 10_000_000_000 {
+        account.token.expiry_timestamp / 1000
+    } else {
+        account.token.expiry_timestamp
+    };
+    let expiry_datetime =
+        chrono::DateTime::from_timestamp(expiry_secs, 0).unwrap_or_else(|| chrono::Utc::now());
+    let expiry_str = expiry_datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+
+    #[derive(serde::Serialize)]
+    struct AgyTokenDetails {
+        access_token: String,
+        token_type: String,
+        refresh_token: String,
+        expiry: String,
+    }
+
+    #[derive(serde::Serialize)]
+    struct AgyOAuthTokenFile {
+        token: AgyTokenDetails,
+        auth_method: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id_token: Option<String>,
+    }
+
+    let agy_token = AgyOAuthTokenFile {
+        token: AgyTokenDetails {
+            access_token: account.token.access_token.clone(),
+            token_type: "Bearer".to_string(),
+            refresh_token: account.token.refresh_token.clone(),
+            expiry: expiry_str,
+        },
+        auth_method: "consumer".to_string(),
+        id_token: account.token.id_token.clone(),
+    };
+
+    let agy_token_path = agy_cli_dir.join("antigravity-oauth-token");
+    if let Ok(agy_json_str) = serde_json::to_string_pretty(&agy_token) {
+        let _ = std::fs::write(&agy_token_path, agy_json_str);
+    }
+
+    // 3. 同步写入 Gemini CLI 凭据 (~/.gemini/oauth_creds.json 以及 ~/.gemini/google_accounts.json)
+    let expiry_ms = if account.token.expiry_timestamp > 10_000_000_000 {
+        account.token.expiry_timestamp
+    } else {
+        account.token.expiry_timestamp * 1000
+    };
+
+    #[derive(serde::Serialize)]
+    struct OAuthCredsFile {
+        access_token: String,
+        refresh_token: String,
+        token_type: String,
+        expiry_date: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id_token: Option<String>,
+        scope: String,
+    }
+
+    let creds = OAuthCredsFile {
+        access_token: account.token.access_token.clone(),
+        refresh_token: account.token.refresh_token.clone(),
+        token_type: "Bearer".to_string(),
+        expiry_date: expiry_ms,
+        id_token: account.token.id_token.clone(),
+        scope: "https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.profile".to_string(),
+    };
+
+    let creds_path = gemini_dir.join("oauth_creds.json");
+    if let Ok(json_str) = serde_json::to_string_pretty(&creds) {
+        let _ = std::fs::write(&creds_path, json_str);
+    }
+
+    #[derive(serde::Serialize)]
+    struct GoogleAccountsFile {
+        active: String,
+        old: Vec<String>,
+    }
+
+    let accounts_info = GoogleAccountsFile {
+        active: account.email.clone(),
+        old: vec![],
+    };
+
+    let accounts_path = gemini_dir.join("google_accounts.json");
+    if let Ok(accounts_json_str) = serde_json::to_string_pretty(&accounts_info) {
+        let _ = std::fs::write(&accounts_path, accounts_json_str);
+    }
+
+    crate::modules::logger::log_info(&format!(
+        "[Desktop] Successfully synced all file-based credentials in ~/.gemini for: {}",
+        account.email
+    ));
+
+    Ok(())
 }
 
 fn cli_session_path() -> Result<Option<std::path::PathBuf>, String> {
