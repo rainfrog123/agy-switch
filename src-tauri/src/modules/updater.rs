@@ -45,7 +45,9 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     let body = response.text().await.map_err(|_| "update_network_failed")?;
     if body.len() > 1_000_000 { return Err("invalid_release".into()); }
     let release = serde_json::from_str(&body).map_err(|_| "invalid_release")?;
-    evaluate(env!("CARGO_PKG_VERSION"), release)
+    let mut info = evaluate(env!("CARGO_PKG_VERSION"), release)?;
+    info.current_version = crate::constants::version_label();
+    Ok(info)
 }
 #[cfg(test)]
 mod tests {

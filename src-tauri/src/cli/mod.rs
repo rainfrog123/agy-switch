@@ -215,9 +215,9 @@ fn execute(command: Command, json: bool) -> Result<String> {
         }
         Command::Version => {
             return Ok(if json {
-                serde_json::json!({"schema_version": 1, "name": "agy-switch", "version": env!("CARGO_PKG_VERSION")}).to_string()
+                serde_json::json!({"schema_version": 1, "name": "agy-switch", "version": crate::constants::version_label()}).to_string()
             } else {
-                format!("agy-switch {}", env!("CARGO_PKG_VERSION"))
+                format!("agy-switch {}", crate::constants::version_label())
             })
         }
         Command::ExperimentsShow => return experiments::show(&data_dir()?, json),

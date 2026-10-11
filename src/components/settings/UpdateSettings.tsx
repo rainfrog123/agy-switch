@@ -6,9 +6,12 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { isTauri } from '../../utils/env';
 import { getRunningVersion } from '../../services/updaterService';
 import { version } from '../../../package.json';
+
+const versionLabel = `${version}-codex/windows-session-switch`;
+
 export default function UpdateSettings() {
     const { t } = useTranslation();
-    const [runningVersion, setRunningVersion] = useState(version);
+    const [runningVersion, setRunningVersion] = useState(versionLabel);
     useEffect(() => { if (isTauri()) void getRunningVersion().then(setRunningVersion).catch(() => {}); }, []);
     const { config, saveConfig, error: configError } = useConfigStore();
     const [startup, setStartup] = useState(config?.check_updates_on_startup !== false);

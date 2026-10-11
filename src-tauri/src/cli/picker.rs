@@ -1207,11 +1207,11 @@ pub fn run_interactive_dashboard(root: &Path) -> Result<(), CliError> {
         match lang {
             Lang::Zh => println!(
                 "\x1b[1magy-switch 账号管理\x1b[0m: \x1b[36magy-switch v{}\x1b[0m",
-                env!("CARGO_PKG_VERSION")
+                crate::constants::version_label()
             ),
             Lang::En => println!(
                 "\x1b[1magy-switch\x1b[0m: \x1b[36mv{}\x1b[0m",
-                env!("CARGO_PKG_VERSION")
+                crate::constants::version_label()
             ),
         }
 
@@ -2596,7 +2596,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec!["当前选择账号".into(), "本地记录".into(), active_info],
             vec![
                 "命令行工具".into(),
-                format!("v{}", env!("CARGO_PKG_VERSION")),
+                format!("v{}", crate::constants::version_label()),
                 "agy-switch".into(),
             ],
         ],
@@ -2607,7 +2607,7 @@ fn show_system_status(snapshot: &Snapshot, root: &Path, lang: Lang) {
             vec!["Selected Account".into(), "Local record".into(), active_info],
             vec![
                 "CLI Binary".into(),
-                format!("v{}", env!("CARGO_PKG_VERSION")),
+                format!("v{}", crate::constants::version_label()),
                 "agy-switch".into(),
             ],
         ],

@@ -181,6 +181,14 @@ pub fn get_current_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// This branch, shown after the upstream release number.
+pub const VERSION_BRANCH: &str = "codex/windows-session-switch";
+
+/// Upstream version plus this branch. Update checks still use the numeric version.
+pub fn version_label() -> String {
+    format!("{}-{}", env!("CARGO_PKG_VERSION"), VERSION_BRANCH)
+}
+
 /// Returns a full User-Agent string for the current version
 /// "Antigravity/4.3.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3"
 pub fn get_default_user_agent() -> String {

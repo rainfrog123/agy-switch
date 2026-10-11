@@ -602,7 +602,7 @@ pub async fn check_for_updates() -> Result<crate::modules::updater::UpdateInfo, 
 }
 
 #[tauri::command]
-pub fn get_running_version() -> String { env!("CARGO_PKG_VERSION").into() }
+pub fn get_running_version() -> String { crate::constants::version_label() }
 
 #[tauri::command]
 pub async fn download_and_install_update(app: tauri::AppHandle, expected_version: String, progress: tauri::ipc::Channel<crate::modules::updater::UpdateProgress>) -> Result<(), String> {
