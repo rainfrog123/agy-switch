@@ -116,8 +116,10 @@ jobs:
           if ([BitConverter]::ToUInt16($bytes, $peOffset + 4) -ne 0x8664) { throw 'Expected x64 APP payload' }
           node scripts/test-cli.mjs src-tauri/target/release/agy-switch-desktop.exe
           if ($LASTEXITCODE -ne 0) { throw 'CLI smoke failed' }
-          $reported = (& 'src-tauri/target/release/agy-switch-desktop.exe' --version).Trim()
-          if ($reported -ne "agy-switch $env:VERSION") { throw "CLI version mismatch: $reported" }
+          # The desktop binary is a GUI-subsystem executable: capture its stdout through
+          # node, not through PowerShell's `&` call operator.
+          node --input-type=module -e 'import assert from "node:assert/strict"; import { execFileSync } from "node:child_process"; assert.equal(execFileSync("src-tauri/target/release/agy-switch-desktop.exe", ["--version"], { encoding: "utf8" }).trim(), "agy-switch " + process.env.VERSION);'
+          if ($LASTEXITCODE -ne 0) { throw 'CLI version mismatch' }
       - name: Stage Windows packages
         shell: bash
         env:
