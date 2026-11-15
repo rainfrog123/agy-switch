@@ -1,9 +1,8 @@
 name: Build installers
 
-# Fork-only convenience workflow: compile the desktop app and console CLI on every
-# platform and upload the packages as downloadable run artifacts. It does not tag,
-# sign or publish anything, so it needs no release secrets. For a real GitHub
-# Release use the `Release` workflow (tag push or dispatch of an existing tag).
+# Windows-only build: compile the desktop app and the console CLI, then upload both
+# packages as downloadable run artifacts. Nothing is tagged, signed or published, so no
+# release secrets are needed. For a real GitHub Release use the `Release` workflow.
 on:
   workflow_dispatch:
   push:
@@ -23,52 +22,6 @@ env:
   CARGO_NET_RETRY: 5
 
 jobs:
-  linux:
-    name: Linux (x64)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          cache-bin: false
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: ./.github/actions/linux-deps
-      - name: Resolve version
-        id: ver
-        run: echo "version=$(node -p "require('./src-tauri/tauri.conf.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Build Linux deb
-        run: ./scripts/build-linux-deb.sh --native
-      - name: Stage Linux packages
-        shell: bash
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/release
-          PACKAGE="artifacts/release/agy-switch-${VERSION}-linux-amd64.deb"
-          cp src-tauri/target/release/bundle/deb/*.deb "$PACKAGE"
-          [[ "$(dpkg-deb -f "$PACKAGE" Architecture)" == "amd64" ]]
-          [[ "$(dpkg-deb -f "$PACKAGE" Version)" == "$VERSION" ]]
-          PAYLOAD="$RUNNER_TEMP/deb-payload"
-          dpkg-deb -x "$PACKAGE" "$PAYLOAD"
-          [[ "$("$PAYLOAD/usr/bin/agy-switch-desktop" --version)" == "agy-switch $VERSION" ]]
-          node scripts/package-cli.mjs "$PAYLOAD/usr/bin/agy-switch" artifacts/release "v$VERSION"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: installers-linux-x64
-          path: artifacts/release/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
   windows:
     name: Windows (x64)
     runs-on: windows-latest
@@ -121,58 +74,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installers-windows-x64
-          path: artifacts/release/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
-  macos:
-    name: macOS (Apple Silicon)
-    runs-on: macos-15
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-          cache-bin: false
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Resolve version
-        id: ver
-        run: echo "version=$(node -p "require('./src-tauri/tauri.conf.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Install frontend dependencies
-        run: npm ci
-      - name: Build ad-hoc signed app bundle
-        env:
-          # Complete bundle sealing; not Developer ID signing or notarization.
-          APPLE_SIGNING_IDENTITY: "-"
-        run: npm run tauri build -- --target aarch64-apple-darwin --bundles app -- --locked
-      - name: Stage macOS app
-        shell: bash
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          set -euo pipefail
-          APP_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
-          APP_NAME="$(node --input-type=module -e 'import {desktopBrand} from "./scripts/release-brand.mjs"; console.log(desktopBrand(process.env.VERSION).app)')"
-          if [[ "$APP_NAME" != "agy-switch" ]]; then
-            mv "$APP_DIR/agy-switch.app" "$APP_DIR/$APP_NAME.app"
-          fi
-          APP="$APP_DIR/$APP_NAME.app"
-          [[ "$(lipo -archs "$APP/Contents/MacOS/agy-switch-desktop")" == "arm64" ]]
-          node scripts/verify-macos-bundle.mjs "$APP" "$VERSION"
-          [[ "$("$APP/Contents/MacOS/agy-switch-desktop" --version)" == "agy-switch $VERSION" ]]
-          mkdir -p artifacts/release
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "artifacts/release/agy-switch-${VERSION}-macos-arm64.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: installers-macos-arm64
           path: artifacts/release/
           if-no-files-found: error
           retention-days: 7
