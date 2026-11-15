@@ -38,10 +38,12 @@ jobs:
       version: ${{ steps.source.outputs.version }}
       commit: ${{ steps.source.outputs.commit }}
     steps:
+      # Never check out the tag itself: a dispatch may intentionally mint a new one.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.ref }}
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
