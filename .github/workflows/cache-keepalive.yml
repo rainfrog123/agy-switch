@@ -1,0 +1,31 @@
+name: Keep Release Cache Warm
+
+# GitHub Actions evicts caches unused for 7 days. Restoring the Windows Rust
+# and npm caches every 5 days resets the LRU timer without running a build.
+on:
+  schedule:
+    - cron: "0 4 */5 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    name: Touch Windows release caches
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-release
+          cache-bin: false
+          save-if: false

@@ -23,20 +23,16 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_NET_RETRY: 5
 
 jobs:
-  prepare:
-    name: Validate the tagged source
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    outputs:
-      tag: ${{ steps.source.outputs.tag }}
-      version: ${{ steps.source.outputs.version }}
-      commit: ${{ steps.source.outputs.commit }}
+  release:
+    name: Build & Publish Windows (x64)
+    runs-on: windows-latest
+    timeout-minutes: 90
     steps:
       # Never check out the tag itself: a dispatch may intentionally mint a new one.
       - uses: actions/checkout@v5
@@ -45,20 +41,24 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: npm
+
       - id: source
         name: Validate all version files agree with the tag
+        shell: bash
         env:
           REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           TAG="$REQUESTED_TAG"
           if [[ -z "$TAG" || "$TAG" != v* ]]; then
-            TAG="v$(node -p "require('./package.json').version")"
+            TAG="v$(node -p "require('./package.json').version" | tr -d '\r')"
           fi
-          VERSION="$(node scripts/release-assets.mjs source "$TAG")"
+          VERSION="$(node scripts/release-assets.mjs source "$TAG" | tr -d '\r')"
           COMMIT="$(git rev-parse HEAD)"
           # A dispatch without an existing tag lets `gh release create` mint it at this commit.
           if git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" >/dev/null; then
@@ -68,48 +68,52 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
-  windows:
-    name: Windows (x64)
-    needs: prepare
-    runs-on: windows-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
-          persist-credentials: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
+      - name: Optimize Windows build environment
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, "$env:USERPROFILE\.cargo", $env:RUNNER_TEMP
+          } catch {
+            Write-Warning "Could not add Defender exclusions: $_"
+          }
+          if (Get-Command lld-link -ErrorAction SilentlyContinue) {
+            "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "Using lld-link for faster MSVC linking"
+          }
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: windows-release
           cache-bin: false
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+
       - name: Install frontend dependencies
         run: npm ci
+
       # The npm optional dependency is occasionally missing on the runner image.
       - name: Ensure the Windows Tauri CLI binary
         shell: bash
         run: |
           set -euo pipefail
           if node -e "require('@tauri-apps/cli-win32-x64-msvc')" 2>/dev/null; then exit 0; fi
-          CLI_VERSION="$(node -p "require('./node_modules/@tauri-apps/cli/package.json').version")"
+          CLI_VERSION="$(node -p "require('./node_modules/@tauri-apps/cli/package.json').version" | tr -d '\r')"
           curl -fLsS "https://registry.npmjs.org/@tauri-apps/cli-win32-x64-msvc/-/cli-win32-x64-msvc-${CLI_VERSION}.tgz" -o cli-win32.tgz
           mkdir -p node_modules/@tauri-apps/cli-win32-x64-msvc
           tar -xzf cli-win32.tgz -C node_modules/@tauri-apps/cli-win32-x64-msvc --strip-components=1
           node -e "require('@tauri-apps/cli-win32-x64-msvc')"
+
       - name: Build Windows executables and installer
         run: |
           npm run tauri build -- --no-bundle -- --locked
           if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
           npm run tauri bundle -- --bundles nsis --config src-tauri/tauri.windows.bundle.conf.json
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
+
       - name: Verify the built executables
         shell: pwsh
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION: ${{ steps.source.outputs.version }}
         run: |
           $bytes = [IO.File]::ReadAllBytes('src-tauri/target/release/agy-switch-desktop.exe')
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
@@ -120,48 +124,30 @@ jobs:
           # node, not through PowerShell's `&` call operator.
           node --input-type=module -e 'import assert from "node:assert/strict"; import { execFileSync } from "node:child_process"; assert.equal(execFileSync("src-tauri/target/release/agy-switch-desktop.exe", ["--version"], { encoding: "utf8" }).trim(), "agy-switch " + process.env.VERSION);'
           if ($LASTEXITCODE -ne 0) { throw 'CLI version mismatch' }
+
       - name: Stage Windows packages
         shell: bash
         env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION: ${{ steps.source.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/release
           PACKAGE="artifacts/release/agy-switch-${VERSION}-windows-x64-setup.exe"
+          PORTABLE="artifacts/release/agy-switch-${VERSION}-windows-x64-portable.exe"
           cp src-tauri/target/release/bundle/nsis/*.exe "$PACKAGE"
+          cp src-tauri/target/release/agy-switch-desktop.exe "$PORTABLE"
           node scripts/release-assets.mjs checksum "$PACKAGE"
+          node scripts/release-assets.mjs checksum "$PORTABLE"
           node scripts/package-cli.mjs src-tauri/target/release/agy-switch.exe artifacts/release "v$VERSION"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-windows-${{ needs.prepare.outputs.commit }}
-          path: artifacts/release/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
 
-  publish:
-    name: Publish the Windows release
-    needs: [prepare, windows]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.prepare.outputs.commit }}
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-windows-${{ needs.prepare.outputs.commit }}
-          path: artifacts/release
       - name: Publish with gh release create
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          COMMIT: ${{ needs.prepare.outputs.commit }}
+          TAG: ${{ steps.source.outputs.tag }}
+          VERSION: ${{ steps.source.outputs.version }}
+          COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
           BODY="$RUNNER_TEMP/notes.md"
@@ -170,7 +156,7 @@ jobs:
           else
             printf 'agy-switch %s\n' "$VERSION" > "$BODY"
           fi
-          printf '\n---\n\nWindows x64 build from a personal fork of anglee0323/agy-switch. Only the Windows installer and console archive are published; the macOS and Linux packages and the signed updater feed are not produced here.\n' >> "$BODY"
+          printf '\n---\n\nWindows x64 build from a personal fork of anglee0323/agy-switch. Only the Windows installer, portable executable, and console archive are published; the macOS and Linux packages and the signed updater feed are not produced here.\n' >> "$BODY"
           ASSETS=(artifacts/release/*.exe artifacts/release/*.zip artifacts/release/*.sha256)
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" "${ASSETS[@]}" --title "agy-switch $VERSION" --notes-file "$BODY"
