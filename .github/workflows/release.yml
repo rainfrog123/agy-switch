@@ -103,11 +103,11 @@ jobs:
           tar -xzf cli-win32.tgz -C node_modules/@tauri-apps/cli-win32-x64-msvc --strip-components=1
           node -e "require('@tauri-apps/cli-win32-x64-msvc')"
 
-      - name: Build Windows executables and installer
+      - name: Build Windows GUI executable and installer
         run: |
-          npm run tauri build -- --no-bundle -- --locked
+          npm run tauri build -- --no-bundle -- --locked --bin agy-switch-desktop
           if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
-          npm run tauri bundle -- --bundles nsis --config src-tauri/tauri.windows.bundle.conf.json
+          npm run tauri bundle -- --bundles nsis
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
 
       - name: Verify the built executables
@@ -138,7 +138,6 @@ jobs:
           cp src-tauri/target/release/agy-switch-desktop.exe "$PORTABLE"
           node scripts/release-assets.mjs checksum "$PACKAGE"
           node scripts/release-assets.mjs checksum "$PORTABLE"
-          node scripts/package-cli.mjs src-tauri/target/release/agy-switch.exe artifacts/release "v$VERSION"
 
       - name: Publish with gh release create
         shell: bash
@@ -156,8 +155,8 @@ jobs:
           else
             printf 'agy-switch %s\n' "$VERSION" > "$BODY"
           fi
-          printf '\n---\n\nWindows x64 build from a personal fork of anglee0323/agy-switch. Only the Windows installer, portable executable, and console archive are published; the macOS and Linux packages and the signed updater feed are not produced here.\n' >> "$BODY"
-          ASSETS=(artifacts/release/*.exe artifacts/release/*.zip artifacts/release/*.sha256)
+          printf '\n---\n\nWindows x64 GUI build from a personal fork of anglee0323/agy-switch. Only the Windows GUI installer and portable executable are published; the standalone CLI archive, macOS/Linux packages, and signed updater feed are not produced here.\n' >> "$BODY"
+          ASSETS=(artifacts/release/*.exe artifacts/release/*.sha256)
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" "${ASSETS[@]}" --title "agy-switch $VERSION" --notes-file "$BODY"
           else
