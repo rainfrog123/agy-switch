@@ -1,15 +1,13 @@
 name: Release
 
-# Windows-only release pipeline for this fork.
+# Windows-only GUI release pipeline for this fork.
 #
-# Upstream's release flow publishes five platform payloads and a signed updater feed, and
-# `scripts/release-assets.mjs` / `publish-release.mjs` assert that exact full asset set.
-# A fork cannot satisfy those checks: the updater signing key belongs to upstream, and the
-# `pubkey` in src-tauri/tauri.conf.json is upstream's. So this workflow keeps upstream's
-# tag/version validation and Windows packaging, then publishes the two Windows payloads
-# directly with `gh release create` (no updater feed, no signing, no Mac/Linux assets).
+# Automatically builds and publishes when a new version is pushed to `main`
+# (if a GitHub Release for `v<package.json version>` does not already exist),
+# when a `v*` tag is pushed, or when manually dispatched.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -30,11 +28,11 @@ env:
 
 jobs:
   release:
-    name: Build & Publish Windows (x64)
+    name: Build & Publish Windows GUI (x64)
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      # Never check out the tag itself: a dispatch may intentionally mint a new one.
+      # Never check out the tag itself: a dispatch or main push may mint a new one.
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.ref }}
@@ -48,9 +46,13 @@ jobs:
           cache: npm
 
       - id: source
-        name: Validate all version files agree with the tag
+        name: Resolve version and check if release is needed
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_FULL: ${{ github.ref }}
           REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
@@ -58,17 +60,29 @@ jobs:
           if [[ -z "$TAG" || "$TAG" != v* ]]; then
             TAG="v$(node -p "require('./package.json').version" | tr -d '\r')"
           fi
+
+          # On regular pushes to main, skip if this version is already published.
+          if [[ "$EVENT_NAME" == "push" && "$GITHUB_REF_FULL" == "refs/heads/main" ]]; then
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release $TAG already exists; skipping build."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           VERSION="$(node scripts/release-assets.mjs source "$TAG" | tr -d '\r')"
           COMMIT="$(git rev-parse HEAD)"
-          # A dispatch without an existing tag lets `gh release create` mint it at this commit.
-          if git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" >/dev/null; then
+          # If this is a tag push, ensure the tag points at HEAD.
+          if [[ "$GITHUB_REF_FULL" == refs/tags/* ]]; then
             [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" == "$COMMIT" ]]
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Optimize Windows build environment
+        if: steps.source.outputs.skip != 'true'
         shell: pwsh
         run: |
           try {
@@ -82,6 +96,7 @@ jobs:
           }
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.source.outputs.skip != 'true'
         with:
           workspaces: src-tauri -> target
           shared-key: windows-release
@@ -89,10 +104,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Install frontend dependencies
+        if: steps.source.outputs.skip != 'true'
         run: npm ci
 
       # The npm optional dependency is occasionally missing on the runner image.
       - name: Ensure the Windows Tauri CLI binary
+        if: steps.source.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -104,6 +121,7 @@ jobs:
           node -e "require('@tauri-apps/cli-win32-x64-msvc')"
 
       - name: Build Windows GUI executable and installer
+        if: steps.source.outputs.skip != 'true'
         run: |
           npm run tauri build -- --no-bundle -- --locked --bin agy-switch-desktop
           if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
@@ -111,6 +129,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
 
       - name: Verify the built executables
+        if: steps.source.outputs.skip != 'true'
         shell: pwsh
         env:
           VERSION: ${{ steps.source.outputs.version }}
@@ -126,6 +145,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CLI version mismatch' }
 
       - name: Stage Windows packages
+        if: steps.source.outputs.skip != 'true'
         shell: bash
         env:
           VERSION: ${{ steps.source.outputs.version }}
@@ -139,7 +159,8 @@ jobs:
           node scripts/release-assets.mjs checksum "$PACKAGE"
           node scripts/release-assets.mjs checksum "$PORTABLE"
 
-      - name: Publish with gh release create
+      - name: Publish GitHub Release
+        if: steps.source.outputs.skip != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -149,6 +170,11 @@ jobs:
           COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
+          ASSETS=(artifacts/release/*.exe artifacts/release/*.sha256)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            exit 0
+          fi
           BODY="$RUNNER_TEMP/notes.md"
           if [[ -f "docs/release-notes/${VERSION}.md" ]]; then
             cp "docs/release-notes/${VERSION}.md" "$BODY"
@@ -156,7 +182,6 @@ jobs:
             printf 'agy-switch %s\n' "$VERSION" > "$BODY"
           fi
           printf '\n---\n\nWindows x64 GUI build from a personal fork of anglee0323/agy-switch. Only the Windows GUI installer and portable executable are published; the standalone CLI archive, macOS/Linux packages, and signed updater feed are not produced here.\n' >> "$BODY"
-          ASSETS=(artifacts/release/*.exe artifacts/release/*.sha256)
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" "${ASSETS[@]}" --title "agy-switch $VERSION" --notes-file "$BODY"
           else
