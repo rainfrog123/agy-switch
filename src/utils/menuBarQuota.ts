@@ -7,7 +7,7 @@ export function weeklyQuotaItems(quota?: QuotaData) {
     .filter(b => b.window.trim().toLowerCase() === 'weekly' || b.bucket_id.toLowerCase().endsWith('-weekly'))
     .map(b => {
       const kind = quotaPoolKind(b.bucket_id, group.display_name);
-      return { id: `${group.display_name}-${b.bucket_id}`, bucketId: b.bucket_id, title: kind === 'argon' ? 'Gemini 4 Argon' : kind === 'gemini' ? 'Gemini' : kind === 'other' ? 'Claude / GPT' : group.display_name || b.display_name || b.bucket_id,
+      return { id: `${group.display_name}-${b.bucket_id}`, bucketId: b.bucket_id, title: kind === 'argon' ? 'Gemini 4 Argon' : kind === 'carbon' ? 'Gemini 4 Carbon' : kind === 'gemini' ? 'Gemini' : kind === 'other' ? 'Claude / GPT' : group.display_name || b.display_name || b.bucket_id,
         shared: kind === 'gemini' || kind === 'other', isClaude: kind === 'other',
         percentage: observedPercentage(b.remaining_fraction, b.remaining_fraction_known, true), resetTime: b.reset_time };
     }));
@@ -52,10 +52,13 @@ export function observedModelPercentage(model?: ModelQuota): number | null {
 export function modelQuotaPoolKind(name: string, displayName?: string): QuotaPoolKind | null {
   const lower = (name || '').trim().toLowerCase();
   if (lower.startsWith('gemini')) {
-    const argon = [name, displayName || ''].some(value =>
-      value.split(/[^a-z0-9]+/i).some(word => word.toLowerCase() === 'argon'),
-    );
-    return argon ? 'argon' : 'gemini';
+    const words = [name, displayName || ''].flatMap(value => value.split(/[^a-z0-9]+/i).map(word => word.toLowerCase()));
+    if (lower.startsWith('gemini-pro-orchestrator')) {
+      return words.includes('argon') || lower.includes('g1-pro') ? 'argon' : 'carbon';
+    }
+    if (words.includes('carbon') || lower.startsWith('gemini-4-carbon')) return 'carbon';
+    if (words.includes('argon') || lower.startsWith('gemini-4-argon')) return 'argon';
+    return 'gemini';
   }
   if (lower.startsWith('claude') || lower.startsWith('gpt')) return 'other';
   return null;
@@ -65,13 +68,16 @@ export function effectiveModelQuota(
   model?: ModelQuota,
   quota?: QuotaData,
 ): { percentage: number | null; resetTime?: string } {
+  if (model?.name?.trim().toLowerCase().endsWith('-disabled')) {
+    return { percentage: null, resetTime: undefined };
+  }
   const basePercentage = observedModelPercentage(model);
   const baseResetTime = model?.reset_time;
   if (!model?.name || !quota?.quota_groups?.length) {
     return { percentage: basePercentage, resetTime: baseResetTime };
   }
   const pool = modelQuotaPoolKind(model.name, model.display_name);
-  if (!pool || (basePercentage === null && pool !== 'argon')) {
+  if (!pool || (basePercentage === null && pool !== 'argon' && pool !== 'carbon')) {
     return { percentage: basePercentage, resetTime: baseResetTime };
   }
   const buckets = quota.quota_groups.flatMap(group =>
@@ -121,18 +127,59 @@ export function modelQuotaForWindow(
   requestedWindow: '5h' | 'weekly' = '5h',
 ): { percentage: number | null; resetTime?: string; window: '5h' | 'weekly' } {
   const pool = modelQuotaPoolKind(model?.name || '', model?.display_name);
+  if (model?.name?.trim().toLowerCase().endsWith('-disabled')) {
+    return { percentage: null, resetTime: undefined, window: pool === 'argon' ? 'weekly' : requestedWindow };
+  }
   if (pool === 'argon') return { ...effectiveModelQuota(model, quota), window: 'weekly' };
   const window = requestedWindow;
   const isWeeklyCache = model?.quota_bucket_id?.toLowerCase().endsWith('-weekly');
   const primary = model?.primary_quota;
-  const base = window === 'weekly' || (isWeeklyCache && !primary) ? null
-    : primary ? observedPercentage(primary.remaining_fraction, true, true) : observedModelPercentage(model);
+  const primaryPercentage = primary ? observedPercentage(primary.remaining_fraction, true, true) : null;
+  const hasPrimary = primaryPercentage !== null;
+  const weeklyBuckets = pool
+    ? (quota?.quota_groups || []).flatMap(group =>
+        group.buckets.filter(
+          bucket =>
+            quotaPoolKind(bucket.bucket_id, group.display_name) === pool &&
+            bucket.window.trim().toLowerCase() === 'weekly',
+        ),
+      )
+    : [];
+  const shortBuckets = pool
+    ? (quota?.quota_groups || []).flatMap(group =>
+        group.buckets.filter(
+          bucket =>
+            quotaPoolKind(bucket.bucket_id, group.display_name) === pool &&
+            bucket.window.trim().toLowerCase() === '5h',
+        ),
+      )
+    : [];
+  const candidateReset = (primary?.reset_time ?? model?.reset_time ?? '').trim();
+  const matchesBucketReset = (buckets: typeof weeklyBuckets, target: string) =>
+    Boolean(target) &&
+    buckets.some(b => {
+      const br = (b.reset_time || '').trim();
+      if (!br) return false;
+      if (br === target) return true;
+      const bMs = Date.parse(br);
+      const tMs = Date.parse(target);
+      return Number.isFinite(bMs) && Number.isFinite(tMs) && Math.abs(bMs - tMs) <= 60_000;
+    });
+  const primaryMatchesWeekly =
+    window === '5h' &&
+    matchesBucketReset(weeklyBuckets, candidateReset) &&
+    !matchesBucketReset(shortBuckets, candidateReset);
+  const base =
+    window === 'weekly' || (isWeeklyCache && !hasPrimary) || primaryMatchesWeekly
+      ? null
+      : hasPrimary
+        ? primaryPercentage
+        : observedModelPercentage(model);
   const baseReset = base === null ? undefined : primary?.reset_time ?? model?.reset_time;
   const fallback = { percentage: base, resetTime: baseReset, window };
   // A configured selector without a reported model remains unknown.
-  if (!pool || !model || (!primary && !model.quota_bucket_id && observedModelPercentage(model) === null)) return fallback;
-  const buckets = (quota?.quota_groups || []).flatMap(group => group.buckets.filter(bucket =>
-    quotaPoolKind(bucket.bucket_id, group.display_name) === pool && bucket.window.trim().toLowerCase() === window));
+  if (!pool || !model || (!hasPrimary && !model.quota_bucket_id && observedModelPercentage(model) === null)) return fallback;
+  const buckets = window === 'weekly' ? weeklyBuckets : shortBuckets;
   const first = buckets[0];
   if (!first) return fallback;
   if (buckets.some(b => b.bucket_id !== first.bucket_id || b.remaining_fraction !== first.remaining_fraction ||

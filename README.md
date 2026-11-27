@@ -50,7 +50,7 @@ This gallery shows macOS 4.9.0; later changes are described below and in the lin
 
 ## Installation
 
-Download the package for your platform from **[GitHub Releases](https://github.com/anglee0323/agy-switch/releases/latest)**. The current release is **4.10.15**. The application is called AntiGravity Switch; the repository and terminal command are `agy-switch`.
+Download the package for your platform from **[GitHub Releases](https://github.com/anglee0323/agy-switch/releases/latest)**. The current release is **4.10.18**. The application is called AntiGravity Switch; the repository and terminal command are `agy-switch`.
 
 | Platform | Desktop package | Terminal access |
 | --- | --- | --- |
@@ -90,14 +90,14 @@ For terminal use only, extract the **Windows x64 console ZIP**, open PowerShell 
 Download the **Linux AMD64 deb**, then install it using the actual filename:
 
 ```sh
-sudo apt install ./agy-switch-4.10.15-linux-amd64.deb
+sudo apt install ./agy-switch-4.10.18-linux-amd64.deb
 agy-switch-desktop       # desktop app
 agy-switch              # terminal dashboard
 ```
 
 For terminal use only, download the **Linux AMD64 console tarball**. Desktop tray support depends on your desktop environment. [Linux dependencies and setup](docs/linux.md)
 
-**System trust checks:** the current macOS release has no Developer ID signing or notarization, and the Windows installer has no Authenticode signing. Your system may block launch or display security prompts. Homebrew does not bypass these checks. Package SHA-256 values are listed in the release manifest; update signatures are included in the update feed. [Package verification and current limitations](docs/maintainers/4.10.15-public-acceptance.md)
+**System trust checks:** the current macOS release has no Developer ID signing or notarization, and the Windows installer has no Authenticode signing. Your system may block launch or display security prompts. Homebrew does not bypass these checks. Package SHA-256 values are listed in the release manifest; update signatures are included in the update feed. [Package verification and current limitations](docs/maintainers/4.10.18-public-acceptance.md)
 
 ## First use
 
@@ -153,11 +153,11 @@ Use the console executable as `.\agy-switch.exe` in PowerShell. Read commands us
 
 They are the remaining quota reported for each account and window. The quick dashboard's aggregate is an equal-weight average of valid account readings, with an available-account count; it is not a combined token balance. Missing or stale readings are shown as unknown. By default, bars are green above 60%, yellow from 20–60%, and red below 20%.
 
-A reported Gemini 4 Argon weekly pool stays separate from shared Gemini quota. Visibility depends on what the account API reports. [Data sources and limits](docs/quota-pools.md)
+A reported Gemini 4 Argon weekly pool or Gemini 4 Carbon pool stays separate from shared Gemini quota. Visibility depends on what the account API reports. [Data sources and limits](docs/quota-pools.md)
 
 ### Cost estimates
 
-The estimate covers the API-equivalent cost of recorded usage using known model prices. Gemini experiment and thinking labels such as `gemini-3.8-flash-exp-b` and `Gemini 3.8 Flash (High)` use the same version's basic model rates unless the price catalog provides an exact rate. Flash Lite and media models stay separate. Unknown or conflicting rates are marked Unpriced and excluded from the estimated total. Rates are parsed once a day from Google's Gemini and Anthropic's Claude pricing pages; a page that cannot be parsed falls back to the built-in table and is reported as a warning. The desktop app refreshes its pricing cache; CLI reads use that local cache. [Pricing rules](docs/dashboard-overview.md)
+The estimate covers the API-equivalent cost of recorded usage using known model prices. Gemini experiment and thinking labels such as `gemini-3.8-flash-exp-b` and `Gemini 3.8 Flash (High)` use the same version's basic model rates unless the price catalog provides an exact rate. Gemini 4 Carbon/Hydrogen effort tiers and Claude 5.5 effort tiers use their own model rates. Flash Lite and media models stay separate. Unknown or conflicting rates are marked Unpriced and excluded from the estimated total. Rates are parsed once a day from Google's Gemini and Anthropic's Claude pricing pages; a page that cannot be parsed falls back to the built-in table and is reported as a warning. The desktop app refreshes its pricing cache; CLI reads use that local cache. [Pricing rules](docs/dashboard-overview.md)
 
 ### Local usage freshness
 

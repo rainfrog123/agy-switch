@@ -33,6 +33,128 @@ export interface ModelConfig {
  * 键为模型 ID，值为模型配置
  */
 export const MODEL_CONFIG: Record<string, ModelConfig> = {
+    // Gemini 4 系列
+    'gemini-4-carbon': {
+        label: 'Gemini 4 Carbon',
+        shortLabel: 'G4 Carbon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['carbon'],
+    },
+    'gemini-4-carbon-high': {
+        label: 'Gemini 4 Carbon (High)',
+        shortLabel: 'G4 Carbon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['carbon', 'high'],
+    },
+    'gemini-4-carbon-medium': {
+        label: 'Gemini 4 Carbon (Medium)',
+        shortLabel: 'G4 Carbon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['carbon', 'medium'],
+    },
+    'gemini-4-carbon-low': {
+        label: 'Gemini 4 Carbon (Low)',
+        shortLabel: 'G4 Carbon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['carbon', 'low'],
+    },
+    'gemini-4-argon': {
+        label: 'Gemini 4 Argon',
+        shortLabel: 'G4 Argon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['argon'],
+    },
+    'gemini-4-argon-high': {
+        label: 'Gemini 4 Argon (High)',
+        shortLabel: 'G4 Argon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['argon', 'high'],
+    },
+    'gemini-4-argon-medium': {
+        label: 'Gemini 4 Argon (Medium)',
+        shortLabel: 'G4 Argon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['argon', 'medium'],
+    },
+    'gemini-4-argon-low': {
+        label: 'Gemini 4 Argon (Low)',
+        shortLabel: 'G4 Argon',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['argon', 'low'],
+    },
+    'gemini-4-hydrogen': {
+        label: 'Gemini 4 Hydrogen',
+        shortLabel: 'G4 Hydrogen',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['hydrogen'],
+    },
+    'gemini-4-hydrogen-xhigh': {
+        label: 'Gemini 4 Hydrogen (Extra)',
+        shortLabel: 'G4 Hydrogen',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['hydrogen', 'xhigh'],
+    },
+    'gemini-4-hydrogen-high': {
+        label: 'Gemini 4 Hydrogen (High)',
+        shortLabel: 'G4 Hydrogen',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['hydrogen', 'high'],
+    },
+    'gemini-4-hydrogen-medium': {
+        label: 'Gemini 4 Hydrogen (Medium)',
+        shortLabel: 'G4 Hydrogen',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['hydrogen', 'medium'],
+    },
+    'gemini-4-hydrogen-low': {
+        label: 'Gemini 4 Hydrogen (Low)',
+        shortLabel: 'G4 Hydrogen',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['hydrogen', 'low'],
+    },
+    'gemini-pro-orchestrator': {
+        label: 'Orchestrator (Carbon)',
+        shortLabel: 'Orchestrator',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['orchestrator', 'carbon'],
+    },
+    'gemini-pro-orchestrator-argon': {
+        label: 'Orchestrator (Argon)',
+        shortLabel: 'Orchestrator',
+        protectedKey: 'gemini-pro',
+        Icon: Gemini.Color,
+        group: 'Gemini 4',
+        tags: ['orchestrator', 'argon'],
+    },
+
     // Gemini 3.x 系列
     // [Migrate] Gemini 3 Pro High/Low -> Gemini 3.1 Pro High/Low
     'gemini-3.1-pro-high': {
@@ -148,6 +270,14 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
         group: 'Gemini 3',
         tags: ['flash', 'lite'],
     },
+    'gemini-3.5-flash-lite': {
+        label: 'Gemini 3.5 Flash Lite',
+        shortLabel: 'G3.5 Lite',
+        protectedKey: 'gemini-flash',
+        Icon: Gemini.Color,
+        group: 'Gemini 3',
+        tags: ['flash', 'lite'],
+    },
     'gemini-3.1-pro': {
         label: 'Gemini 3.1 Pro',
         shortLabel: 'G3.1 Pro',
@@ -225,6 +355,22 @@ export const MODEL_CONFIG: Record<string, ModelConfig> = {
     },
 
     // Claude 系列
+    'claude-sonnet-5-5': {
+        label: 'Claude Sonnet 5.5 (Thinking)',
+        shortLabel: 'Claude 5.5',
+        protectedKey: 'claude',
+        Icon: Claude.Color,
+        group: 'Claude',
+        tags: ['sonnet', 'thinking'],
+    },
+    'claude-opus-5-5': {
+        label: 'Claude Opus 5.5 (Thinking)',
+        shortLabel: 'Claude Opus 5.5',
+        protectedKey: 'claude',
+        Icon: Claude.Color,
+        group: 'Claude',
+        tags: ['opus', 'thinking'],
+    },
     'claude-sonnet-4-6': {
         label: 'Claude 4.6',
         shortLabel: 'Claude 4.6',
@@ -290,7 +436,9 @@ export function getModelSortWeight(modelId: string): number {
 
     // 1. 系列权重 (动态匹配 Gemini 版本，新版本自动优先)
     const geminiVer = id.match(/^gemini-(\d+(\.\d+)?)/);
-    if (geminiVer) {
+    if (id.includes('orchestrator')) {
+        weight += 49000;
+    } else if (geminiVer) {
         const v = parseFloat(geminiVer[1]);
         // 动态计算：版本越高权重数字越小，如 4.0 -> 50000, 3.8 -> 54000, 3.1 -> 68000, 2.5 -> 80000
         weight += Math.max(10000, Math.round(130000 - v * 20000));
@@ -312,7 +460,7 @@ export function getModelSortWeight(modelId: string): number {
     }
 
     // 3. 特殊后缀权重
-    if (id.includes('high')) {
+    if (id.includes('high') || id.includes('xhigh')) {
         weight += 0;
     } else if (id.includes('thinking')) {
         weight += 10;
@@ -320,6 +468,17 @@ export function getModelSortWeight(modelId: string): number {
         weight += 20;
     } else if (id.includes('low')) {
         weight += 30;
+    }
+
+    // 4. Gemini 4 家族内排序：Orchestrator、Carbon、Argon、Hydrogen
+    if (id.includes('orchestrator')) {
+        weight += 50;
+    } else if (id.includes('carbon')) {
+        weight += 100;
+    } else if (id.includes('argon')) {
+        weight += 150;
+    } else if (id.includes('hydrogen')) {
+        weight += 200;
     }
 
     return weight;
@@ -367,7 +526,7 @@ export {
 export const DEFAULT_PINNED_MODELS: string[] = [
     'gemini-3.1-pro',
     'gemini-3.8-flash',
-    'claude-sonnet-4-6',
+    'claude-sonnet-5-5',
 ];
 
 export interface DisplayQuotaModelItem {
@@ -402,7 +561,7 @@ export function getDisplayQuotaModels(
     // 2. 将账号的实际模型按主模型 Key 汇聚（若存在多个档位，择优选取 High 或有效项）
     const accountCanonMap = new Map<string, ModelQuota>();
     for (const m of (accountModels || [])) {
-        if (!m.name) continue;
+        if (!m.name || m.name.toLowerCase().endsWith('-disabled')) continue;
         const canon = getCanonicalModelKey(m.name);
         const existing = accountCanonMap.get(canon);
         if (!existing) {
@@ -410,7 +569,9 @@ export function getDisplayQuotaModels(
         } else {
             const mLower = m.name.toLowerCase();
             const exLower = existing.name.toLowerCase();
-            if (mLower.includes('high') && !exLower.includes('high')) {
+            const mKnown = m.percentage_known !== false && !mLower.endsWith('-disabled');
+            const exKnown = existing.percentage_known !== false && !exLower.endsWith('-disabled');
+            if ((mKnown && !exKnown) || (mKnown === exKnown && mLower.includes('high') && !exLower.includes('high'))) {
                 accountCanonMap.set(canon, m);
             }
         }
@@ -420,7 +581,29 @@ export function getDisplayQuotaModels(
 
     for (const canonKey of pinnedKeys) {
         let rawModel = accountCanonMap.get(canonKey);
-        if (!rawModel && canonKey === 'gemini-3.1-pro' && !pinnedKeys.includes('gemini-2.5-pro')) {
+        if (!rawModel && canonKey === 'gemini-pro-orchestrator-argon') {
+            const argonModel = accountCanonMap.get('gemini-4-argon');
+            if (argonModel) {
+                rawModel = { ...argonModel, name: canonKey, display_name: undefined };
+            }
+        } else if (!rawModel && canonKey === 'gemini-pro-orchestrator') {
+            const carbonModel = accountCanonMap.get('gemini-4-carbon');
+            if (carbonModel) {
+                rawModel = { ...carbonModel, name: canonKey, display_name: undefined };
+            }
+        } else if (!rawModel && canonKey === 'gemini-4-hydrogen' && !pinnedKeys.includes('gemini-3.8-flash')) {
+            rawModel = accountCanonMap.get('gemini-3.8-flash');
+        } else if (!rawModel && canonKey === 'gemini-3.8-flash' && !pinnedKeys.includes('gemini-4-hydrogen')) {
+            rawModel = accountCanonMap.get('gemini-4-hydrogen');
+        } else if (!rawModel && canonKey === 'claude-sonnet-5-5' && !pinnedKeys.includes('claude-sonnet-4-6')) {
+            rawModel = accountCanonMap.get('claude-sonnet-4-6');
+        } else if (!rawModel && canonKey === 'claude-sonnet-4-6' && !pinnedKeys.includes('claude-sonnet-5-5')) {
+            rawModel = accountCanonMap.get('claude-sonnet-5-5');
+        } else if (!rawModel && canonKey === 'claude-opus-5-5' && !pinnedKeys.includes('claude-opus-4-6-thinking')) {
+            rawModel = accountCanonMap.get('claude-opus-4-6-thinking');
+        } else if (!rawModel && canonKey === 'claude-opus-4-6-thinking' && !pinnedKeys.includes('claude-opus-5-5')) {
+            rawModel = accountCanonMap.get('claude-opus-5-5');
+        } else if (!rawModel && canonKey === 'gemini-3.1-pro' && !pinnedKeys.includes('gemini-2.5-pro')) {
             rawModel = accountCanonMap.get('gemini-2.5-pro');
         } else if (!rawModel && canonKey === 'gemini-2.5-pro' && !pinnedKeys.includes('gemini-3.1-pro')) {
             rawModel = accountCanonMap.get('gemini-3.1-pro');
